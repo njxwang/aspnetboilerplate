@@ -1,4 +1,6 @@
 ﻿using System;
+using Abp.AspNetCore.Configuration;
+using Abp.AspNetCore.Mvc.Extensions;
 using Abp.AspNetCore.TestBase;
 using Abp.Reflection.Extensions;
 using Microsoft.AspNetCore.Builder;
@@ -13,7 +15,7 @@ namespace Abp.AspNetCore.App
     {
         public IServiceProvider ConfigureServices(IServiceCollection services)
         {
-            var mvc = services.AddMvc();
+            var mvc = services.AddMvc().AddXmlSerializerFormatters();
 
             mvc.PartManager.ApplicationParts.Add(new AssemblyPart(typeof(AbpAspNetCoreModule).GetAssembly()));
 
@@ -32,9 +34,7 @@ namespace Abp.AspNetCore.App
 
             app.UseMvc(routes =>
             {
-                routes.MapRoute(
-                    name: "default",
-                    template: "{controller=Home}/{action=Index}/{id?}");
+                app.ApplicationServices.GetRequiredService<IAbpAspNetCoreConfiguration>().RouteConfiguration.ConfigureAll(routes);
             });
         }
     }
