@@ -1,4 +1,5 @@
 ﻿using System.Globalization;
+using System.Threading.Tasks;
 using Abp.Configuration;
 using Abp.Domain.Uow;
 using Abp.Localization;
@@ -84,7 +85,7 @@ namespace Abp.Quartz
         /// </summary>
         public IObjectMapper ObjectMapper { get; set; }
 
-        public abstract void Execute(IJobExecutionContext context);
+        public abstract Task Execute(IJobExecutionContext context);
 
         /// <summary>
         ///     Gets localized string for given key name and current language.
@@ -102,7 +103,7 @@ namespace Abp.Quartz
         /// <param name="name">Key name</param>
         /// <param name="args">Format arguments</param>
         /// <returns>Localized string</returns>
-        protected string L(string name, params object[] args)
+        protected virtual string L(string name, params object[] args)
         {
             return LocalizationSource.GetString(name, args);
         }
@@ -125,9 +126,10 @@ namespace Abp.Quartz
         /// <param name="culture">culture information</param>
         /// <param name="args">Format arguments</param>
         /// <returns>Localized string</returns>
-        protected string L(string name, CultureInfo culture, params object[] args)
+        protected virtual string L(string name, CultureInfo culture, params object[] args)
         {
             return LocalizationSource.GetString(name, culture, args);
         }
+
     }
 }

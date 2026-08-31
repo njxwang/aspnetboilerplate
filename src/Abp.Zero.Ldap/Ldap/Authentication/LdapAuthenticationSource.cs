@@ -15,7 +15,9 @@ namespace Abp.Zero.Ldap.Authentication
     /// </summary>
     /// <typeparam name="TTenant">Tenant type</typeparam>
     /// <typeparam name="TUser">User type</typeparam>
-    public abstract class LdapAuthenticationSource<TTenant, TUser> : DefaultExternalAuthenticationSource<TTenant, TUser>, ITransientDependency
+    public abstract class LdapAuthenticationSource<TTenant, TUser> :
+        DefaultExternalAuthenticationSource<TTenant, TUser>,
+        ITransientDependency
         where TTenant : AbpTenant<TUser>
         where TUser : AbpUserBase, new()
     {
@@ -24,10 +26,7 @@ namespace Abp.Zero.Ldap.Authentication
         /// </summary>
         public const string SourceName = "LDAP";
 
-        public override string Name
-        {
-            get { return SourceName; }
-        }
+        public override string Name => SourceName;
 
         private readonly ILdapSettings _settings;
         private readonly IAbpZeroLdapModuleConfig _ldapModuleConfig;
@@ -39,29 +38,30 @@ namespace Abp.Zero.Ldap.Authentication
         }
 
         /// <inheritdoc/>
-        public override async Task<bool> TryAuthenticateAsync(string userNameOrEmailAddress, string plainPassword, TTenant tenant)
+        public override async Task<bool> TryAuthenticateAsync(string userNameOrEmailAddress, string plainPassword,
+            TTenant tenant)
         {
-            if (!_ldapModuleConfig.IsEnabled || !(await _settings.GetIsEnabled(GetIdOrNull(tenant))))
+            if (!_ldapModuleConfig.IsEnabled || !(await _settings.GetIsEnabled(tenant?.Id)))
             {
                 return false;
             }
 
-            using (var principalContext = await CreatePrincipalContext(tenant))
+            using (var principalContext = await CreatePrincipalContext(tenant, userNameOrEmailAddress))
             {
                 return ValidateCredentials(principalContext, userNameOrEmailAddress, plainPassword);
             }
         }
 
         /// <inheritdoc/>
-        public async override Task<TUser> CreateUserAsync(string userNameOrEmailAddress, TTenant tenant)
+        public override async Task<TUser> CreateUserAsync(string userNameOrEmailAddress, TTenant tenant)
         {
             await CheckIsEnabled(tenant);
 
             var user = await base.CreateUserAsync(userNameOrEmailAddress, tenant);
 
-            using (var principalContext = await CreatePrincipalContext(tenant))
+            using (var principalContext = await CreatePrincipalContext(tenant, user))
             {
-                var userPrincipal = UserPrincipal.FindByIdentity(principalContext, userNameOrEmailAddress);
+                var userPrincipal = FindUserPrincipalByIdentity(principalContext, userNameOrEmailAddress);
 
                 if (userPrincipal == null)
                 {
@@ -77,15 +77,15 @@ namespace Abp.Zero.Ldap.Authentication
             }
         }
 
-        public async override Task UpdateUserAsync(TUser user, TTenant tenant)
+        public override async Task UpdateUserAsync(TUser user, TTenant tenant)
         {
             await CheckIsEnabled(tenant);
 
             await base.UpdateUserAsync(user, tenant);
 
-            using (var principalContext = await CreatePrincipalContext(tenant))
+            using (var principalContext = await CreatePrincipalContext(tenant, user))
             {
-                var userPrincipal = UserPrincipal.FindByIdentity(principalContext, user.UserName);
+                var userPrincipal = FindUserPrincipalByIdentity(principalContext, user.UserName);
 
                 if (userPrincipal == null)
                 {
@@ -96,14 +96,17 @@ namespace Abp.Zero.Ldap.Authentication
             }
         }
 
-        protected virtual bool ValidateCredentials(PrincipalContext principalContext, string userNameOrEmailAddress, string plainPassword)
+        protected virtual bool ValidateCredentials(PrincipalContext principalContext, string userNameOrEmailAddress,
+            string plainPassword)
         {
-            return principalContext.ValidateCredentials(userNameOrEmailAddress, plainPassword, ContextOptions.Negotiate);
+            return principalContext.ValidateCredentials(userNameOrEmailAddress, plainPassword,
+                ContextOptions.Negotiate);
         }
 
         protected virtual void UpdateUserFromPrincipal(TUser user, UserPrincipal userPrincipal)
         {
-            user.UserName = userPrincipal.SamAccountName;
+            user.UserName = GetUsernameFromUserPrincipal(userPrincipal);
+
             user.Name = userPrincipal.GivenName;
             user.Surname = userPrincipal.Surname;
             user.EmailAddress = userPrincipal.EmailAddress;
@@ -114,41 +117,79 @@ namespace Abp.Zero.Ldap.Authentication
             }
         }
 
-        protected virtual async Task<PrincipalContext> CreatePrincipalContext(TTenant tenant)
+        protected virtual UserPrincipal FindUserPrincipalByIdentity(
+            PrincipalContext principalContext,
+            string userNameOrEmailAddress)
         {
-            var tenantId = GetIdOrNull(tenant);
-            
-            return new PrincipalContext(
-                await _settings.GetContextType(tenantId),
-                ConvertToNullIfEmpty(await _settings.GetDomain(tenantId)),
-                ConvertToNullIfEmpty(await _settings.GetContainer(tenantId)),
-                ConvertToNullIfEmpty(await _settings.GetUserName(tenantId)),
-                ConvertToNullIfEmpty(await _settings.GetPassword(tenantId))
-                );
+            var userPrincipal =
+                UserPrincipal.FindByIdentity(principalContext, IdentityType.SamAccountName, userNameOrEmailAddress) ??
+                UserPrincipal.FindByIdentity(principalContext, IdentityType.UserPrincipalName, userNameOrEmailAddress);
+
+            return userPrincipal;
         }
 
-        private async Task CheckIsEnabled(TTenant tenant)
+        protected virtual string GetUsernameFromUserPrincipal(UserPrincipal userPrincipal)
+        {
+            return userPrincipal.SamAccountName.IsNullOrEmpty()
+                ? userPrincipal.UserPrincipalName
+                : userPrincipal.SamAccountName;
+        }
+
+        protected virtual Task<PrincipalContext> CreatePrincipalContext(TTenant tenant, string userNameOrEmailAddress)
+        {
+            return CreatePrincipalContext(tenant);
+        }
+
+        protected virtual Task<PrincipalContext> CreatePrincipalContext(TTenant tenant, TUser user)
+        {
+            return CreatePrincipalContext(tenant);
+        }
+
+        protected virtual async Task<PrincipalContext> CreatePrincipalContext(TTenant tenant)
+        {
+            var useSsl = await _settings.GetUseSsl(tenant?.Id);
+            var contextType = await _settings.GetContextType(tenant?.Id);
+            
+            var options = useSsl
+                ? ContextOptions.SecureSocketLayer | ContextOptions.Negotiate
+                : GetDefaultOptionForStore(contextType);
+
+            return new PrincipalContext(
+                contextType,
+                ConvertToNullIfEmpty(await _settings.GetDomain(tenant?.Id)),
+                ConvertToNullIfEmpty(await _settings.GetContainer(tenant?.Id)),
+                options,
+                ConvertToNullIfEmpty(await _settings.GetUserName(tenant?.Id)),
+                ConvertToNullIfEmpty(await _settings.GetPassword(tenant?.Id))
+            );
+        }
+
+        private ContextOptions GetDefaultOptionForStore(ContextType contextType)
+        {
+            if (contextType == ContextType.Machine)
+            {
+                return ContextOptions.Negotiate;
+            }
+
+            return ContextOptions.Negotiate | ContextOptions.Signing | ContextOptions.Sealing;
+        }
+
+        protected virtual async Task CheckIsEnabled(TTenant tenant)
         {
             if (!_ldapModuleConfig.IsEnabled)
             {
-                throw new AbpException("Ldap Authentication module is disabled globally!");                
+                throw new AbpException("Ldap Authentication module is disabled globally!");
             }
 
-            var tenantId = GetIdOrNull(tenant);
+            var tenantId = tenant?.Id;
             if (!await _settings.GetIsEnabled(tenantId))
             {
-                throw new AbpException("Ldap Authentication is disabled for given tenant (id:" + tenantId + ")! You can enable it by setting '" + LdapSettingNames.IsEnabled + "' to true");
+                throw new AbpException("Ldap Authentication is disabled for given tenant (id:" + tenantId +
+                                       ")! You can enable it by setting '" + LdapSettingNames.IsEnabled + "' to true");
             }
         }
 
-        private static int? GetIdOrNull(TTenant tenant)
-        {
-            return tenant == null
-                ? (int?)null
-                : tenant.Id;
-        }
-
-        private static string ConvertToNullIfEmpty(string str)
+        protected static string ConvertToNullIfEmpty(string str)
         {
             return str.IsNullOrWhiteSpace()
                 ? null

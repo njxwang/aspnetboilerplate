@@ -7,47 +7,43 @@ $srcPath = Join-Path $slnPath "src"
 $projects = (
     "Abp",
     "Abp.AspNetCore",
+    "Abp.AspNetCore.OData",
+    "Abp.AspNetCore.SignalR",
+    "Abp.AspNetCore.TestBase",
+    "Abp.AspNetCore.PerRequestRedisCache",
     "Abp.AutoMapper",
-    "Abp.MailKit",
+    "Abp.BlobStoring",
+    "Abp.BlobStoring.Azure",
+    "Abp.BlobStoring.FileSystem",
+    "Abp.Castle.Log4Net",
+    "Abp.Dapper",
+    "Abp.EntityFramework",
+    "Abp.EntityFramework.Common",
+    "Abp.EntityFrameworkCore",
+    "Abp.FluentMigrator",
+    "Abp.FluentValidation",
     "Abp.HangFire",
     "Abp.HangFire.AspNetCore",
-    "Abp.Quartz",
-    "Abp.QuartzCore",
-    "Abp.EntityFramework.Common",
-    "Abp.EntityFramework",
-    "Abp.EntityFramework.GraphDiff",
-    "Abp.EntityFrameworkCore",
-    "Abp.Dapper",
-    "Abp.FluentMigrator",
+    "Abp.HtmlSanitizer",
+    "Abp.MailKit",
     "Abp.MemoryDb",
     "Abp.MongoDB",
     "Abp.NHibernate",
     "Abp.RedisCache",
     "Abp.RedisCache.ProtoBuf",
-    "Abp.Owin",
-    "Abp.Web.Common",
-    "Abp.Web",
-    "Abp.Web.Api",
-    "Abp.Web.Mvc",
-    "Abp.Web.SignalR",
-    "Abp.Web.Api.OData",
-    "Abp.Castle.Log4Net",
+    "Abp.Quartz",
     "Abp.TestBase",
-    "Abp.AspNetCore.TestBase",
+    "Abp.Web.Common",
     "Abp.Web.Resources",
     "Abp.Zero.Common",
     "Abp.Zero.Ldap",
-    "Abp.Zero",
-    "Abp.Zero.Owin",
-    "Abp.Zero.AspNetCore",
-    "Abp.Zero.EntityFramework",
-    "Abp.Zero.EntityFrameworkCore",
-    "Abp.Zero.NHibernate",
     "Abp.ZeroCore",
-    "Abp.ZeroCore.EntityFrameworkCore",
     "Abp.ZeroCore.EntityFramework",
-    "Abp.ZeroCore.IdentityServer4",
-    "Abp.ZeroCore.IdentityServer4.EntityFrameworkCore"    
+    "Abp.ZeroCore.EntityFrameworkCore",
+    "Abp.ZeroCore.NHibernate",
+	"Abp.ZeroCore.OpenIddict",
+	"Abp.ZeroCore.OpenIddict.EntityFrameworkCore",
+	"Abp.AspNetCore.OpenIddict"
 )
 
 # Rebuild solution
@@ -61,14 +57,17 @@ foreach($project in $projects) {
 
     # Create nuget pack
     Set-Location $projectFolder
-    Remove-Item -Recurse (Join-Path $projectFolder "bin/Release")
-    & dotnet msbuild /p:Configuration=Release /p:SourceLinkCreate=true
-    & dotnet msbuild /t:pack /p:Configuration=Release /p:SourceLinkCreate=true
+    Get-ChildItem (Join-Path $projectFolder "bin/Release") -ErrorAction SilentlyContinue | Remove-Item -Recurse
+    & dotnet msbuild /p:Configuration=Release
+    & dotnet msbuild /p:Configuration=Release /t:pack /p:IncludeSymbols=true /p:SymbolPackageFormat=snupkg
 
     # Copy nuget package
     $projectPackPath = Join-Path $projectFolder ("/bin/Release/" + $project + ".*.nupkg")
     Move-Item $projectPackPath $packFolder
 
+	# Copy symbol package
+    $projectPackPath = Join-Path $projectFolder ("/bin/Release/" + $project + ".*.snupkg")
+    Move-Item $projectPackPath $packFolder
 }
 
 # Go back to the pack folder
